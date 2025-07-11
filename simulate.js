@@ -5,12 +5,29 @@ const path = require("path");
 
 const CSV_FILE = path.join(__dirname, "trades.csv");
 
-let balance = 1.0;
+let balance = 2.0;
 const buyAmountSol = 0.02;
 const takeProfitMultiplier = 2.0;
 const openPositions = {}; // { ca: { entryPrice, tokenAmount, interval } }
 
 const torAgent = new SocksProxyAgent("socks5h://127.0.0.1:9050");
+
+// === Change Timestamp to UTC+7 ===
+function getLocalTimestamp() {
+    const now = new Date();
+    const offsetMs = 7 * 60 * 60 * 1000;
+    const localTime = new Date(now.getTime() + offsetMs);
+
+    // Format: YYYY-MM-DD HH:mm:ss
+    const yyyy = localTime.getFullYear();
+    const mm = String(localTime.getMonth() + 1).padStart(2, "0");
+    const dd = String(localTime.getDate()).padStart(2, "0");
+    const hh = String(localTime.getHours()).padStart(2, "0");
+    const min = String(localTime.getMinutes()).padStart(2, "0");
+    const sec = String(localTime.getSeconds()).padStart(2, "0");
+
+    return `${yyyy}-${mm}-${dd} ${hh}:${min}:${sec}`;
+}
 
 // === Create CSV with header if missing ===
 function ensureCSVHeader() {
@@ -34,7 +51,7 @@ function logTrade({ type, ca, solAmount, tokenAmount, price }) {
     ensureCSVHeader();
     const row =
         [
-            new Date().toISOString(),
+            new getLocalTimestamp(),
             ca,
             type,
             solAmount,
@@ -57,7 +74,7 @@ async function getPrice(ca) {
         const res = await axios.get(url, {
             params: { ids },
             httpsAgent: torAgent,
-            timeout: 7000,
+            timeout: 3000,
         });
 
         const data = res.data;
