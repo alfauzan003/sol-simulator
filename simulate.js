@@ -2,6 +2,7 @@ const axios = require("axios");
 const { SocksProxyAgent } = require("socks-proxy-agent");
 const fs = require("fs");
 const path = require("path");
+const { DateTime } = require("luxon");
 
 const CSV_FILE = path.join(__dirname, "trades.csv");
 
@@ -14,19 +15,9 @@ const torAgent = new SocksProxyAgent("socks5h://127.0.0.1:9050");
 
 // === Change Timestamp to UTC+7 ===
 function getLocalTimestamp() {
-    const now = new Date();
-    const offsetMs = 7 * 60 * 60 * 1000;
-    const localTime = new Date(now.getTime() + offsetMs);
-
-    // Format: YYYY-MM-DD HH:mm:ss
-    const yyyy = localTime.getFullYear();
-    const mm = String(localTime.getMonth() + 1).padStart(2, "0");
-    const dd = String(localTime.getDate()).padStart(2, "0");
-    const hh = String(localTime.getHours()).padStart(2, "0");
-    const min = String(localTime.getMinutes()).padStart(2, "0");
-    const sec = String(localTime.getSeconds()).padStart(2, "0");
-
-    return `${yyyy}-${mm}-${dd} ${hh}:${min}:${sec}`;
+    return DateTime.now()
+        .setZone("Asia/Jakarta")
+        .toFormat("yyyy-MM-dd HH:mm:ss");
 }
 
 // === Create CSV with header if missing ===
