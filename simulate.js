@@ -42,7 +42,7 @@ function logTrade({ type, ca, solAmount, tokenAmount, price }) {
     ensureCSVHeader();
     const row =
         [
-            new getLocalTimestamp(),
+            getLocalTimestamp(),
             ca,
             type,
             solAmount,
