@@ -148,7 +148,7 @@ function startMonitoringAllPrices() {
         } catch (err) {
             console.error(`[Monitor Loop Error] ${err.message}`);
         }
-    }, 3000);
+    }, 2000);
 }
 
 function rebuildOpenPositions() {

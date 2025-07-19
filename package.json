@@ -19,6 +19,7 @@
         "luxon": "^3.7.1",
         "socks-proxy-agent": "^8.0.5",
         "telegram": "^2.26.22",
-        "tor-request": "^3.1.0"
+        "tor-request": "^3.1.0",
+        "nodemon": "^3.1.10"
     }
 }
