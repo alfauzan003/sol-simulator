@@ -106,41 +106,47 @@ function startMonitoringAllPrices() {
 
         const prices = await getBatchedPrices(tokenList);
 
-        for (const ca of tokenList) {
-            const pos = openPositions[ca];
-            const currentPrice = prices[ca];
-            if (!currentPrice) continue;
+        try {
+            for (const ca of tokenList) {
+                const pos = openPositions[ca];
+                const currentPrice = prices[ca];
 
-            const targetPrice = pos.entryPrice * takeProfitMultiplier;
-            if (!pos.hasLogged && currentPrice >= targetPrice * 0.9) {
-                console.log(
-                    `📈 ${ca} nearing target: ${currentPrice.toFixed(
-                        9
-                    )} / ${targetPrice.toFixed(9)}`
-                );
-                pos.hasLogged = true;
+                // 🔒 Add full safety check
+                if (!currentPrice || !pos) continue;
+
+                const targetPrice = pos.entryPrice * takeProfitMultiplier;
+                if (!pos.hasLogged && currentPrice >= targetPrice * 0.9) {
+                    console.log(
+                        `📈 ${ca} nearing target: ${currentPrice.toFixed(
+                            9
+                        )} / ${targetPrice.toFixed(9)}`
+                    );
+                    pos.hasLogged = true;
+                }
+
+                if (currentPrice >= targetPrice) {
+                    const grossSol = pos.tokenAmount * currentPrice;
+                    const earnedSol = grossSol * 0.99;
+                    balance += earnedSol - 0.0007;
+
+                    logTrade({
+                        type: "SELL",
+                        ca,
+                        solAmount: earnedSol,
+                        tokenAmount: pos.tokenAmount,
+                        price: currentPrice,
+                    });
+
+                    delete openPositions[ca];
+                    console.log(
+                        `✅ Sold ${ca} at ${currentPrice}. Balance: ${balance.toFixed(
+                            4
+                        )} SOL`
+                    );
+                }
             }
-
-            if (currentPrice >= targetPrice) {
-                const grossSol = pos.tokenAmount * currentPrice;
-                const earnedSol = grossSol * 0.99;
-                balance += earnedSol - 0.0007;
-
-                logTrade({
-                    type: "SELL",
-                    ca,
-                    solAmount: earnedSol,
-                    tokenAmount: pos.tokenAmount,
-                    price: currentPrice,
-                });
-
-                delete openPositions[ca];
-                console.log(
-                    `✅ Sold ${ca} at ${currentPrice}. Balance: ${balance.toFixed(
-                        4
-                    )} SOL`
-                );
-            }
+        } catch (err) {
+            console.error(`[Monitor Loop Error] ${err.message}`);
         }
     }, 3000);
 }
