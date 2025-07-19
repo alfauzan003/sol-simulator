@@ -1,26 +1,24 @@
 const axios = require("axios");
-const { SocksProxyAgent } = require("socks-proxy-agent");
 const fs = require("fs");
 const path = require("path");
 const { DateTime } = require("luxon");
+const { SocksProxyAgent } = require("socks-proxy-agent");
 
 const CSV_FILE = path.join(__dirname, "trades.csv");
 
 let balance = 2.0;
 const buyAmountSol = 0.02;
 const takeProfitMultiplier = 2.0;
-const openPositions = {}; // { ca: { entryPrice, tokenAmount, interval } }
+const openPositions = {}; // { ca: { entryPrice, tokenAmount, hasLogged } }
 
 const torAgent = new SocksProxyAgent("socks5h://127.0.0.1:9050");
 
-// === Change Timestamp to UTC+7 ===
 function getLocalTimestamp() {
     return DateTime.now()
         .setZone("Asia/Jakarta")
         .toFormat("yyyy-MM-dd HH:mm:ss");
 }
 
-// === Create CSV with header if missing ===
 function ensureCSVHeader() {
     if (!fs.existsSync(CSV_FILE)) {
         const header =
@@ -37,7 +35,6 @@ function ensureCSVHeader() {
     }
 }
 
-// === Log trade to CSV ===
 function logTrade({ type, ca, solAmount, tokenAmount, price }) {
     ensureCSVHeader();
     const row =
@@ -55,32 +52,99 @@ function logTrade({ type, ca, solAmount, tokenAmount, price }) {
     console.log(`[📄] ${type} ${ca} logged to CSV`);
 }
 
-// === Get price in SOL ===
-async function getPrice(ca) {
+async function getBatchedPrices(caList) {
     const SOL_CA = "So11111111111111111111111111111111111111112";
     const url = "https://lite-api.jup.ag/price/v3";
-    const ids = `${SOL_CA},${ca}`;
 
-    try {
-        const res = await axios.get(url, {
-            params: { ids },
-            httpsAgent: torAgent,
-            timeout: 3000,
-        });
-
-        const data = res.data;
-        const solPrice = data[SOL_CA]?.usdPrice;
-        const tokenPrice = data[ca]?.usdPrice;
-
-        if (!solPrice || !tokenPrice) return null;
-        return tokenPrice / solPrice;
-    } catch (err) {
-        console.error(`[Tor Error] ${err.message}`);
-        return null;
+    // Split into chunks of 49 tokens (because SOL_CA is always included)
+    const chunks = [];
+    for (let i = 0; i < caList.length; i += 49) {
+        chunks.push(caList.slice(i, i + 49));
     }
+
+    const finalPrices = {};
+
+    for (const chunk of chunks) {
+        const ids = [SOL_CA, ...chunk].join(",");
+
+        try {
+            const res = await axios.get(url, {
+                params: { ids },
+                httpsAgent: torAgent,
+                timeout: 5000,
+            });
+
+            const data = res.data;
+            const solPrice = data[SOL_CA]?.usdPrice;
+            if (!solPrice) continue;
+
+            for (const ca of chunk) {
+                const tokenPrice = data[ca]?.usdPrice;
+                if (tokenPrice) {
+                    finalPrices[ca] = tokenPrice / solPrice;
+                }
+            }
+        } catch (err) {
+            console.error(`[Tor Error] Chunk fetch failed: ${err.message}`);
+        }
+    }
+
+    return finalPrices;
 }
 
-// === Rebuild open positions from CSV ===
+async function getPriceForOne(ca) {
+    const prices = await getBatchedPrices([ca]);
+    return prices[ca] || null;
+}
+
+function startMonitoringAllPrices() {
+    console.log("🚀 Starting batch price monitor");
+
+    setInterval(async () => {
+        const tokenList = Object.keys(openPositions);
+        if (tokenList.length === 0) return;
+
+        const prices = await getBatchedPrices(tokenList);
+
+        for (const ca of tokenList) {
+            const pos = openPositions[ca];
+            const currentPrice = prices[ca];
+            if (!currentPrice) continue;
+
+            const targetPrice = pos.entryPrice * takeProfitMultiplier;
+            if (!pos.hasLogged && currentPrice >= targetPrice * 0.9) {
+                console.log(
+                    `📈 ${ca} nearing target: ${currentPrice.toFixed(
+                        9
+                    )} / ${targetPrice.toFixed(9)}`
+                );
+                pos.hasLogged = true;
+            }
+
+            if (currentPrice >= targetPrice) {
+                const grossSol = pos.tokenAmount * currentPrice;
+                const earnedSol = grossSol * 0.99;
+                balance += earnedSol - 0.0007;
+
+                logTrade({
+                    type: "SELL",
+                    ca,
+                    solAmount: earnedSol,
+                    tokenAmount: pos.tokenAmount,
+                    price: currentPrice,
+                });
+
+                delete openPositions[ca];
+                console.log(
+                    `✅ Sold ${ca} at ${currentPrice}. Balance: ${balance.toFixed(
+                        4
+                    )} SOL`
+                );
+            }
+        }
+    }, 3000);
+}
+
 function rebuildOpenPositions() {
     if (!fs.existsSync(CSV_FILE)) return;
 
@@ -95,6 +159,7 @@ function rebuildOpenPositions() {
             map.set(ca, {
                 entryPrice: parseFloat(price),
                 tokenAmount: parseFloat(token),
+                hasLogged: false,
             });
         } else if (type === "SELL") {
             map.delete(ca);
@@ -103,61 +168,13 @@ function rebuildOpenPositions() {
 
     for (const [ca, data] of map.entries()) {
         openPositions[ca] = data;
-        console.log(`[🔄] Resuming monitoring for ${ca}`);
-        startMonitoringPrice(ca);
+        console.log(`🔄 Resuming monitoring for ${ca}`);
     }
 }
 
-// === Monitor price for 2x profit ===
-function startMonitoringPrice(ca) {
-    const interval = setInterval(async () => {
-        const currentPrice = await getPrice(ca);
-        if (!currentPrice) return;
-
-        const pos = openPositions[ca];
-        if (!pos) {
-            clearInterval(interval);
-            return;
-        }
-
-        const targetPrice = pos.entryPrice * takeProfitMultiplier;
-        console.log(
-            `📊 ${ca} | Entry: ${pos.entryPrice.toFixed(
-                9
-            )} | Now: ${currentPrice.toFixed(9)}`
-        );
-
-        if (currentPrice >= targetPrice) {
-            const grossSol = pos.tokenAmount * currentPrice;
-            const earnedSol = grossSol * 0.99;
-            balance += earnedSol - 0.0007;
-
-            logTrade({
-                type: "SELL",
-                ca,
-                solAmount: earnedSol,
-                tokenAmount: pos.tokenAmount,
-                price: currentPrice,
-            });
-
-            clearInterval(interval);
-            delete openPositions[ca];
-            console.log(
-                `✅ Sold ${ca} at ${currentPrice}. New balance: ${balance.toFixed(
-                    4
-                )} SOL`
-            );
-        }
-    }, 700);
-
-    openPositions[ca].interval = interval;
-}
-
-// === Main Simulation Entry ===
 const simulate = async function (ca) {
     ensureCSVHeader();
 
-    // Load open positions if not already loaded
     if (Object.keys(openPositions).length === 0) {
         rebuildOpenPositions();
     }
@@ -167,7 +184,7 @@ const simulate = async function (ca) {
         return;
     }
 
-    const entryPrice = await getPrice(ca);
+    const entryPrice = await getPriceForOne(ca);
     if (!entryPrice) {
         console.log(`[❌] Price unavailable for ${ca}`);
         return;
@@ -193,14 +210,14 @@ const simulate = async function (ca) {
     openPositions[ca] = {
         entryPrice,
         tokenAmount,
+        hasLogged: false,
     };
-
-    startMonitoringPrice(ca);
 };
 
 async function startMonitoringAll() {
     ensureCSVHeader();
     rebuildOpenPositions();
+    startMonitoringAllPrices();
 }
 
 module.exports = {

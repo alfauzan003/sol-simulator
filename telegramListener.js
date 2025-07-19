@@ -14,7 +14,7 @@ const stringSession = new StringSession(process.env.SESSION_STRING || "");
 
 setInterval(() => {
     rotateTorIP().catch(() => {});
-}, 1 * 1000);
+}, 5 * 60 * 1000);
 
 function updateEnvSession(newSessionString) {
     const envPath = ".env";
