@@ -59,13 +59,14 @@ function updateEnvSession(newSessionString) {
 
         const sender = await msg.getSender();
         if (!sender || sender.username !== "solearlytrending") return;
-        if (!text.includes("Hodls:")) return;
+        if (!text.includes("Hodls:") || !text.includes("✅")) return;
 
         for (const entity of entities) {
             if (entity instanceof Api.MessageEntityTextUrl) {
                 const match = entity.url.match(
                     /start=[^_]+_([1-9A-HJ-NP-Za-km-z]{32,44})/
                 );
+                // console.log("entities:", entity);
                 if (match) {
                     const ca = match[1];
                     console.log("Extracted CA", ca);
